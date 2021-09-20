@@ -6,10 +6,8 @@
 package com.artipie.pypi.http;
 
 import com.artipie.asto.Content;
-import com.artipie.asto.Copy;
 import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
-import com.artipie.asto.fs.FileStorage;
 import com.artipie.http.ArtipieHttpException;
 import com.artipie.http.Response;
 import com.artipie.http.Slice;
@@ -23,14 +21,10 @@ import com.artipie.pypi.NormalizedProjectName;
 import com.artipie.pypi.meta.Metadata;
 import com.artipie.pypi.meta.PackageInfo;
 import com.artipie.pypi.meta.ValidFilename;
+import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
-import org.apache.commons.io.FileUtils;
-import org.cactoos.list.ListOf;
-import org.cactoos.scalar.Unchecked;
 import org.reactivestreams.Publisher;
 
 /**
@@ -61,19 +55,16 @@ final class WheelSlice implements Slice {
         final Iterable<Map.Entry<String, String>> iterable,
         final Publisher<ByteBuffer> publisher
     ) {
-        final Path path = new Unchecked<>(() -> Files.createTempDirectory("py-artifact-")).value();
-        final Path file = path.resolve(UUID.randomUUID().toString());
-        final Storage temp = new FileStorage(path);
-        final Key.From key = new Key.From(file.getFileName().toString());
+        final Key.From key = new Key.From(UUID.randomUUID().toString());
         // @checkstyle ReturnCountCheck (50 lines)
         return new AsyncResponse(
             new Multipart(iterable, publisher).content().thenCompose(
-                data -> temp.save(key, new Content.From(data.bytes()))
-                    .thenCompose(nothing -> new Copy(temp, new ListOf<>(key)).copy(this.storage))
+                data -> this.storage.save(key, new Content.From(data.bytes()))
                     .thenCompose(
                         ignored -> {
-                            final PackageInfo info =
-                                new Metadata.FromArchive(file, data.fileName()).read();
+                            final PackageInfo info = new Metadata.FromArchive(
+                                new ByteArrayInputStream(data.bytes()), data.fileName()
+                            ).read();
                             if (new ValidFilename(info, data.fileName()).valid()) {
                                 return this.storage.move(
                                     key,
@@ -102,7 +93,6 @@ final class WheelSlice implements Slice {
                             new ArtipieHttpException(RsStatus.BAD_REQUEST, throwable)
                         );
                     }
-                    FileUtils.deleteQuietly(path.toFile());
                     return res;
                 }
             )

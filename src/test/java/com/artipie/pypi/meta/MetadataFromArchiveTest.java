@@ -5,7 +5,7 @@
 package com.artipie.pypi.meta;
 
 import com.artipie.asto.test.TestResource;
-import java.nio.file.Paths;
+import java.io.ByteArrayInputStream;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.core.IsEqual;
 import org.junit.jupiter.api.Assertions;
@@ -31,7 +31,9 @@ class MetadataFromArchiveTest {
     })
     void readsFromTarGz(final String filename) {
         MatcherAssert.assertThat(
-            new Metadata.FromArchive(new TestResource(filename).asPath()).read().name(),
+            new Metadata.FromArchive(
+                new TestResource(filename).asInputStream(), filename
+            ).read().name(),
             new IsEqual<>("artipie-sample")
         );
     }
@@ -40,7 +42,9 @@ class MetadataFromArchiveTest {
     void throwsExceptionIfArchiveIsUnsupported() {
         Assertions.assertThrows(
             UnsupportedOperationException.class,
-            () -> new Metadata.FromArchive(Paths.get("some/archive.tar.br")).read()
+            () -> new Metadata.FromArchive(
+                new ByteArrayInputStream("any".getBytes()), "some/archive.tar.br"
+            ).read()
         );
     }
 

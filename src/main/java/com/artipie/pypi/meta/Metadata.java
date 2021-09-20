@@ -5,12 +5,10 @@
 package com.artipie.pypi.meta;
 
 import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.apache.commons.compress.archivers.ArchiveEntry;
 import org.apache.commons.compress.archivers.ArchiveException;
@@ -42,9 +40,9 @@ public interface Metadata {
     final class FromArchive implements Metadata {
 
         /**
-         * Path to archive.
+         * Archive input stream.
          */
-        private final Path file;
+        private final InputStream input;
 
         /**
          * Name of the file.
@@ -53,20 +51,12 @@ public interface Metadata {
 
         /**
          * Ctor.
-         * @param file Path to archive
+         * @param input Path to archive
          * @param filename Filename
          */
-        public FromArchive(final Path file, final String filename) {
-            this.file = file;
+        public FromArchive(final InputStream input, final String filename) {
+            this.input = input;
             this.filename = filename;
-        }
-
-        /**
-         * Ctor.
-         * @param file Path to archive
-         */
-        public FromArchive(final Path file) {
-            this(file, file.getFileName().toString());
         }
 
         @Override
@@ -93,7 +83,7 @@ public interface Metadata {
         private PackageInfo readTarZ() {
             try (
                 ZCompressorInputStream origin = new ZCompressorInputStream(
-                    new BufferedInputStream(Files.newInputStream(this.file))
+                    new BufferedInputStream(this.input)
                 )
             ) {
                 return FromArchive.unpack(origin);
@@ -109,7 +99,7 @@ public interface Metadata {
         private PackageInfo readBz() {
             try (
                 BZip2CompressorInputStream origin = new BZip2CompressorInputStream(
-                    new BufferedInputStream(Files.newInputStream(this.file))
+                    new BufferedInputStream(this.input)
                 )
             ) {
                 return FromArchive.unpack(origin);
@@ -124,11 +114,11 @@ public interface Metadata {
          */
         private PackageInfo readZipTarOrWhl() {
             try (
-                ArchiveInputStream input = new ArchiveStreamFactory().createArchiveInputStream(
-                    new BufferedInputStream(Files.newInputStream(this.file))
+                ArchiveInputStream archive = new ArchiveStreamFactory().createArchiveInputStream(
+                    new BufferedInputStream(this.input)
                 )
             ) {
-                return FromArchive.readArchive(input);
+                return FromArchive.readArchive(archive);
             } catch (final ArchiveException | IOException ex) {
                 throw FromArchive.error(ex);
             }
@@ -139,9 +129,8 @@ public interface Metadata {
          * @return PackageInfo
          */
         private PackageInfo readTarGz() {
-            try (GzipCompressorInputStream input =
-                new GzipCompressorInputStream(Files.newInputStream(this.file));
-                TarArchiveInputStream tar = new TarArchiveInputStream(input)) {
+            try (GzipCompressorInputStream archive = new GzipCompressorInputStream(this.input);
+                TarArchiveInputStream tar = new TarArchiveInputStream(archive)) {
                 return FromArchive.readArchive(tar);
             } catch (final IOException ex) {
                 throw FromArchive.error(ex);
@@ -159,11 +148,11 @@ public interface Metadata {
         private static PackageInfo unpack(final InputStream origin)
             throws IOException, ArchiveException {
             try (
-                ArchiveInputStream input = new ArchiveStreamFactory().createArchiveInputStream(
-                    new BufferedInputStream(new ByteArrayInputStream(IOUtils.toByteArray(origin)))
+                ArchiveInputStream archive = new ArchiveStreamFactory().createArchiveInputStream(
+                    new BufferedInputStream(origin)
                 )
             ) {
-                return readArchive(input);
+                return readArchive(archive);
             }
         }
 
@@ -185,17 +174,22 @@ public interface Metadata {
         @SuppressWarnings("PMD.AssignmentInOperand")
         private static PackageInfo readArchive(final ArchiveInputStream input) throws IOException {
             ArchiveEntry entry;
+            Optional<PackageInfo> res = Optional.empty();
             while ((entry = input.getNextEntry()) != null) {
                 if (!input.canReadEntryData(entry) || entry.isDirectory()) {
                     continue;
                 }
                 if (entry.getName().contains("PKG-INFO") || entry.getName().contains("METADATA")) {
-                    return new PackageInfo.FromMetadata(
-                        IOUtils.toString(input, StandardCharsets.US_ASCII)
+                    res = Optional.of(
+                        new PackageInfo.FromMetadata(
+                            IOUtils.toString(input, StandardCharsets.US_ASCII)
+                        )
                     );
                 }
             }
-            throw new IllegalArgumentException("Package metadata file not found");
+            return res.orElseThrow(
+                () -> new IllegalArgumentException("Package metadata file not found")
+            );
         }
 
     }

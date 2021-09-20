@@ -77,7 +77,9 @@ class SearchSliceTest {
     void returnsXmlWithInfoWhenArtifactFound(final String pckg, final String name) {
         final TestResource resource = new TestResource(String.format("pypi_repo/%s", pckg));
         resource.saveTo(this.storage, new Key.From(name, pckg));
-        final byte[] body = SearchSlice.found(new Metadata.FromArchive(resource.asPath()).read());
+        final byte[] body = SearchSlice.found(
+            new Metadata.FromArchive(resource.asInputStream(), pckg).read()
+        );
         MatcherAssert.assertThat(
             new SearchSlice(this.storage),
             new SliceHasResponse(

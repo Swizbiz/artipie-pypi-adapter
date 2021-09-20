@@ -5,11 +5,10 @@
 package com.artipie.pypi.http;
 
 import com.artipie.asto.Content;
-import com.artipie.asto.Copy;
 import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
 import com.artipie.asto.ext.PublisherAs;
-import com.artipie.asto.fs.FileStorage;
+import com.artipie.asto.streams.ContentAsStream;
 import com.artipie.http.ArtipieHttpException;
 import com.artipie.http.Headers;
 import com.artipie.http.Response;
@@ -24,15 +23,10 @@ import com.artipie.pypi.meta.PackageInfo;
 import com.jcabi.xml.XMLDocument;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import org.apache.commons.io.FileUtils;
-import org.cactoos.list.ListOf;
-import org.cactoos.scalar.Unchecked;
 import org.reactivestreams.Publisher;
 
 /**
@@ -59,7 +53,6 @@ public final class SearchSlice implements Slice {
     @Override
     public Response response(final String line, final Iterable<Map.Entry<String, String>> headers,
         final Publisher<ByteBuffer> body) {
-        final Path temp = new Unchecked<>(() -> Files.createTempDirectory("py-artifact-")).value();
         return new AsyncResponse(
             new NameFromXml(body).get().thenCompose(
                 name -> {
@@ -76,9 +69,12 @@ public final class SearchSlice implements Slice {
                                     .max(Comparator.naturalOrder())
                                     .map(Key.From::new)
                                     .orElseThrow(IllegalStateException::new);
-                                res = this.tempArtifact(new Key.From(latest), temp)
-                                    .thenApply(path -> new Metadata.FromArchive(path).read())
-                                    .thenApply(info -> new Content.From(SearchSlice.found(info)));
+                                res = this.storage.value(latest).thenCompose(
+                                    val -> new ContentAsStream<PackageInfo>(val).process(
+                                        input ->
+                                            new Metadata.FromArchive(input, latest.string()).read()
+                                    )
+                                ).thenApply(info -> new Content.From(SearchSlice.found(info)));
                             }
                             return res;
                         }
@@ -96,7 +92,6 @@ public final class SearchSlice implements Slice {
                             new ArtipieHttpException(RsStatus.INTERNAL_ERROR, throwable)
                         );
                     }
-                    FileUtils.deleteQuietly(temp.toFile());
                     return res;
                 }
             )
@@ -156,17 +151,6 @@ public final class SearchSlice implements Slice {
             "</params>",
             "</methodResponse>"
         ).getBytes(StandardCharsets.UTF_8);
-    }
-
-    /**
-     * Copy artifact to the temp storage.
-     * @param artifact Artifact key to copy
-     * @param temp Temp dir
-     * @return Path of the temp file
-     */
-    private CompletableFuture<Path> tempArtifact(final Key artifact, final Path temp) {
-        return new Copy(this.storage, new ListOf<>(artifact)).copy(new FileStorage(temp))
-            .thenApply(nothing -> temp.resolve(artifact.string()));
     }
 
     /**
