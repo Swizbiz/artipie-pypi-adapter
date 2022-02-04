@@ -6,16 +6,14 @@ package com.artipie.pypi.http;
 
 import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
-import com.artipie.asto.fs.FileStorage;
 import com.artipie.asto.memory.InMemoryStorage;
 import com.artipie.asto.test.TestResource;
 import com.artipie.http.auth.Authentication;
 import com.artipie.http.auth.Permissions;
 import com.artipie.http.slice.LoggingSlice;
-import com.artipie.pypi.PypiContainer;
+import com.artipie.pypi.PypiDeployment;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.reactivex.core.Vertx;
-import java.nio.file.Path;
 import org.cactoos.list.ListOf;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
@@ -25,9 +23,9 @@ import org.hamcrest.text.StringContainsInOrder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
-import org.junit.jupiter.api.io.TempDir;
-import org.testcontainers.Testcontainers;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * A test which ensures {@code pip} console tool compatibility with the adapter.
@@ -36,7 +34,7 @@ import org.testcontainers.Testcontainers;
  * @checkstyle ClassDataAbstractionCouplingCheck (500 lines)
  */
 @SuppressWarnings("PMD.AvoidDuplicateLiterals")
-@DisabledIfSystemProperty(named = "os.name", matches = "Windows.*")
+@DisabledOnOs(OS.WINDOWS)
 public final class PySliceITCase {
 
     /**
@@ -49,15 +47,27 @@ public final class PySliceITCase {
      */
     private VertxSliceServer server;
 
+    /**
+     * Test storage.
+     */
+    private Storage asto;
+
+    /**
+     * Pypi container.
+     */
+    @RegisterExtension
+    private final PypiDeployment container = new PypiDeployment();
+
     @BeforeEach
     void start() {
+        this.asto = new InMemoryStorage();
         this.vertx = Vertx.vertx();
     }
 
     @AfterEach
     void stop() {
         if (this.server != null) {
-            this.server.close();
+            this.server.stop();
         }
         if (this.vertx != null) {
             this.vertx.close();
@@ -65,142 +75,129 @@ public final class PySliceITCase {
     }
 
     @Test
-    void canPublishAndInstallWithAuth(@TempDir final Path temp) throws Exception {
-        final FileStorage storage = new FileStorage(temp);
+    void canPublishAndInstallWithAuth() throws Exception {
         final String user = "alladin";
         final String pswd = "opensesame";
-        final int port = this.startServer(
-            storage,
+        this.startServer(
             (identity, perm) -> user.equals(identity.name())
                 && ("download".equals(perm) || "upload".equals(perm)),
             new Authentication.Single(user, pswd)
         );
-        try (PypiContainer runtime = new PypiContainer()) {
-            runtime.installTooling();
-            MatcherAssert.assertThat(
-                "AlarmTime successfully uploaded",
-                runtime.bash(
-                    // @checkstyle LineLengthCheck (1 line)
-                    String.format("python3 -m twine upload --repository-url %s -u %s -p %s --verbose pypi_repo/alarmtime-0.1.5.tar.gz", runtime.localAddress(port), user, pswd)
-                ),
-                new StringContainsInOrder(
-                    new ListOf<String>(
-                        "Uploading alarmtime-0.1.5.tar.gz", "100%"
-                    )
+        final String alarmtime = "pypi_repo/alarmtime-0.1.5.tar.gz";
+        this.container.putBinaryToContainer(new TestResource(alarmtime).asBytes(), alarmtime);
+        MatcherAssert.assertThat(
+            "AlarmTime successfully uploaded",
+            this.container.bash(
+                String.format(
+                    "python3 -m twine upload --repository-url %s -u %s -p %s --verbose %s",
+                    this.container.localAddress(), user, pswd, alarmtime
                 )
-            );
-            MatcherAssert.assertThat(
-                "AlarmTime found in storage",
-                storage.exists(new Key.From("alarmtime/alarmtime-0.1.5.tar.gz")).join(),
-                new IsEqual<>(true)
-            );
-            MatcherAssert.assertThat(
-                "AlarmTime successfully installed",
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal alarmtime",
-                        runtime.localAddress(port, user, pswd)
-                    )
-                ),
-                new StringContains("Successfully installed alarmtime-0.1.5")
-            );
-        }
+            ),
+            new StringContainsInOrder(
+                new ListOf<String>("Uploading alarmtime-0.1.5.tar.gz", "100%")
+            )
+        );
+        MatcherAssert.assertThat(
+            "AlarmTime found in storage",
+            this.asto.exists(new Key.From("alarmtime/alarmtime-0.1.5.tar.gz")).join(),
+            new IsEqual<>(true)
+        );
+        MatcherAssert.assertThat(
+            "AlarmTime successfully installed",
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal alarmtime",
+                    this.container.localAddress(user, pswd)
+                )
+            ),
+            new StringContains("Successfully installed alarmtime-0.1.5")
+        );
     }
 
     @Test
     void canPublishAndInstallIfNameIsNotNormalized() throws Exception {
-        final Storage storage = new InMemoryStorage();
-        final int port = this.startServer(storage);
-        try (PypiContainer runtime = new PypiContainer()) {
-            runtime.installTooling();
-            MatcherAssert.assertThat(
-                "ABtests successfully uploaded",
-                runtime.bash(
-                    // @checkstyle LineLengthCheck (1 line)
-                    String.format("python3 -m twine upload --repository-url %s -u any -p any --verbose pypi_repo/ABtests-0.0.2.1-py2.py3-none-any.whl", runtime.localAddress(port))
-                ),
-                new StringContainsInOrder(
-                    new ListOf<String>(
-                        "Uploading ABtests-0.0.2.1-py2.py3-none-any.whl", "100%"
-                    )
+        this.startServer();
+        final String abtest = "pypi_repo/ABtests-0.0.2.1-py2.py3-none-any.whl";
+        this.container.putBinaryToContainer(new TestResource(abtest).asBytes(), abtest);
+        MatcherAssert.assertThat(
+            "ABtests successfully uploaded",
+            this.container.bash(
+                String.format(
+                    "python3 -m twine upload --repository-url %s -u any -p any --verbose %s",
+                    this.container.localAddress(), abtest
                 )
-            );
-            MatcherAssert.assertThat(
-                "ABtests found in storage",
-                storage.exists(new Key.From("abtests/ABtests-0.0.2.1-py2.py3-none-any.whl")).join(),
-                new IsEqual<>(true)
-            );
-            MatcherAssert.assertThat(
-                "ABtests successfully installed",
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal ABtests",
-                        runtime.localAddress(port)
-                    )
-                ),
-                new StringContains("Successfully installed ABtests-0.0.2.1")
-            );
-        }
+            ),
+            new StringContainsInOrder(
+                new ListOf<String>(
+                    "Uploading ABtests-0.0.2.1-py2.py3-none-any.whl", "100%"
+                )
+            )
+        );
+        MatcherAssert.assertThat(
+            "ABtests found in storage",
+            this.asto.exists(new Key.From("abtests/ABtests-0.0.2.1-py2.py3-none-any.whl")).join(),
+            new IsEqual<>(true)
+        );
+        MatcherAssert.assertThat(
+            "ABtests successfully installed",
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal ABtests",
+                    this.container.localAddress()
+                )
+            ),
+            new StringContains("Successfully installed ABtests-0.0.2.1")
+        );
     }
 
     @Test
-    void canInstallWithVersion(@TempDir final Path temp) throws Exception {
-        final FileStorage storage = new FileStorage(temp);
-        this.putPackages(storage);
-        final int port = this.startServer(storage);
-        try (PypiContainer runtime = new PypiContainer()) {
-            MatcherAssert.assertThat(
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal \"alarmtime==0.1.5\"",
-                        runtime.localAddress(port)
-                    )
-                ),
-                Matchers.containsString("Successfully installed alarmtime-0.1.5")
-            );
-        }
+    void canInstallWithVersion() throws Exception {
+        this.putPackages();
+        this.startServer();
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal \"alarmtime==0.1.5\"",
+                    this.container.localAddress()
+                )
+            ),
+            Matchers.containsString("Successfully installed alarmtime-0.1.5")
+        );
     }
 
     @Test
     void canSearch() throws Exception {
-        final Storage storage = new InMemoryStorage();
-        this.putPackages(storage);
-        final int port = this.startServer(storage);
-        try (PypiContainer runtime = new PypiContainer()) {
-            MatcherAssert.assertThat(
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip search alarmtime --index %s",
-                        runtime.localAddress(port)
-                    )
-                ),
-                Matchers.stringContainsInOrder("AlarmTime", "0.1.5")
-            );
-        }
+        this.putPackages();
+        this.startServer();
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    "pip search alarmtime --index %s", this.container.localAddress()
+                )
+            ),
+            Matchers.stringContainsInOrder("AlarmTime", "0.1.5")
+        );
     }
 
-    private void putPackages(final Storage storage) {
+    private void putPackages() {
         new TestResource("pypi_repo/alarmtime-0.1.5.tar.gz")
-            .saveTo(storage, new Key.From("alarmtime", "alarmtime-0.1.5.tar.gz"));
+            .saveTo(this.asto, new Key.From("alarmtime", "alarmtime-0.1.5.tar.gz"));
     }
 
-    private int startServer(final Storage storage, final Permissions perms,
-        final Authentication auth) {
+    private void startServer(final Permissions perms, final Authentication auth) {
         this.server = new VertxSliceServer(
             this.vertx,
-            new LoggingSlice(new PySlice(storage, perms, auth))
+            new LoggingSlice(new PySlice(this.asto, perms, auth)),
+            this.container.port()
         );
-        final int port = this.server.start();
-        Testcontainers.exposeHostPorts(port);
-        return port;
+        this.server.start();
     }
 
-    private int startServer(final Storage storage) {
-        return this.startServer(storage, Permissions.FREE, Authentication.ANONYMOUS);
+    private void startServer() {
+        this.startServer(Permissions.FREE, Authentication.ANONYMOUS);
     }
 
 }

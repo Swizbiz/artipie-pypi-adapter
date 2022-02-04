@@ -13,7 +13,7 @@ import com.artipie.http.client.jetty.JettyClientSlices;
 import com.artipie.http.rq.RqMethod;
 import com.artipie.http.rs.RsStatus;
 import com.artipie.http.slice.LoggingSlice;
-import com.artipie.pypi.PypiContainer;
+import com.artipie.pypi.PypiDeployment;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.reactivex.core.Vertx;
 import java.io.IOException;
@@ -29,9 +29,9 @@ import org.hamcrest.text.StringContainsInOrder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
-import org.testcontainers.Testcontainers;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * Test for {@link PyProxySlice}.
@@ -39,6 +39,7 @@ import org.testcontainers.Testcontainers;
  * @checkstyle ClassDataAbstractionCouplingCheck (500 lines)
  */
 @SuppressWarnings("PMD.AvoidDuplicateLiterals")
+@DisabledOnOs(OS.WINDOWS)
 final class PyProxySliceITCase {
 
     /**
@@ -54,11 +55,6 @@ final class PyProxySliceITCase {
     );
 
     /**
-     * Server port.
-     */
-    private int port;
-
-    /**
      * Vertx slice server instance.
      */
     private VertxSliceServer server;
@@ -67,6 +63,12 @@ final class PyProxySliceITCase {
      * Test storage.
      */
     private Storage storage;
+
+    /**
+     * Pypi container.
+     */
+    @RegisterExtension
+    private final PypiDeployment container = new PypiDeployment();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -78,39 +80,36 @@ final class PyProxySliceITCase {
                 new PyProxySlice(
                     this.client, URI.create("https://pypi.org/simple"), this.storage
                 )
-            )
+            ),
+            this.container.port()
         );
-        this.port = this.server.start();
+        this.server.start();
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
     void installsFromProxy() throws IOException, InterruptedException {
-        Testcontainers.exposeHostPorts(this.port);
-        try (PypiContainer runtime = new PypiContainer()) {
-            MatcherAssert.assertThat(
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --verbose --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
-                        runtime.localAddress(this.port)
-                    )
-                ),
-                Matchers.containsString("Successfully installed alarmtime-0.1.4")
-            );
-            MatcherAssert.assertThat(
-                "Requested items cached",
-                this.storage.list(new Key.From("alarmtime")).join().isEmpty(),
-                new IsEqual<>(false)
-            );
-        }
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --verbose --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
+                    this.container.localAddress()
+                )
+            ),
+            Matchers.containsString("Successfully installed alarmtime-0.1.4")
+        );
+        MatcherAssert.assertThat(
+            "Requested items cached",
+            this.storage.list(new Key.From("alarmtime")).join().isEmpty(),
+            new IsEqual<>(false)
+        );
     }
 
     @Test
     void proxiesIndexRequest() throws Exception {
         final String key = "a2utils";
         final HttpURLConnection con = (HttpURLConnection) new URL(
-            String.format("http://localhost:%s/%s/", this.port, key)
+            String.format("http://localhost:%s/%s/", this.container.port(), key)
         ).openConnection();
         con.setRequestMethod(RqMethod.GET.value());
         MatcherAssert.assertThat(
@@ -140,7 +139,7 @@ final class PyProxySliceITCase {
     @Test
     void proxiesUnsuccessfulResponseStatus() throws Exception {
         final HttpURLConnection con = (HttpURLConnection) new URL(
-            String.format("http://localhost:%s/abc/123/", this.port)
+            String.format("http://localhost:%s/abc/123/", this.container.port())
         ).openConnection();
         con.setRequestMethod(RqMethod.GET.value());
         MatcherAssert.assertThat(
@@ -159,7 +158,7 @@ final class PyProxySliceITCase {
     @Test
     void followsRedirects() throws Exception {
         final HttpURLConnection con = (HttpURLConnection) new URL(
-            String.format("http://localhost:%s/AlarmTime/", this.port)
+            String.format("http://localhost:%s/AlarmTime/", this.container.port())
         ).openConnection();
         con.setRequestMethod(RqMethod.GET.value());
         MatcherAssert.assertThat(

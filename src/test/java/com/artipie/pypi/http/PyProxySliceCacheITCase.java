@@ -13,7 +13,7 @@ import com.artipie.http.client.jetty.JettyClientSlices;
 import com.artipie.http.rs.StandardRs;
 import com.artipie.http.slice.LoggingSlice;
 import com.artipie.http.slice.SliceSimple;
-import com.artipie.pypi.PypiContainer;
+import com.artipie.pypi.PypiDeployment;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.reactivex.core.Vertx;
 import java.io.IOException;
@@ -23,15 +23,16 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
-import org.testcontainers.Testcontainers;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * Test for {@link PyProxySlice}.
  * @since 0.7
  * @checkstyle ClassDataAbstractionCouplingCheck (500 lines)
  */
+@DisabledOnOs(OS.WINDOWS)
 final class PyProxySliceCacheITCase {
 
     /**
@@ -43,11 +44,6 @@ final class PyProxySliceCacheITCase {
      * Jetty client.
      */
     private final JettyClientSlices client = new JettyClientSlices();
-
-    /**
-     * Server port.
-     */
-    private int port;
 
     /**
      * Vertx slice server instance.
@@ -63,6 +59,12 @@ final class PyProxySliceCacheITCase {
      * Test storage.
      */
     private Storage storage;
+
+    /**
+     * Pypi container.
+     */
+    @RegisterExtension
+    private final PypiDeployment container = new PypiDeployment();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -80,32 +82,29 @@ final class PyProxySliceCacheITCase {
                     URI.create(String.format("http://localhost:%d", this.bad.start())),
                     this.storage
                 )
-            )
+            ),
+            this.container.port()
         );
-        this.port = this.server.start();
+        this.server.start();
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
     void installsFromCache() throws IOException, InterruptedException {
-        Testcontainers.exposeHostPorts(this.port);
         new TestResource("pypi_repo/alarmtime-0.1.5.tar.gz")
             .saveTo(this.storage, new Key.From("alarmtime/alarmtime-0.1.5.tar.gz"));
         this.storage.save(
             new Key.From("alarmtime"), new Content.From(this.indexHtml().getBytes())
         ).join();
-        try (PypiContainer runtime = new PypiContainer()) {
-            MatcherAssert.assertThat(
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --verbose --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
-                        runtime.localAddress(this.port)
-                    )
-                ),
-                Matchers.containsString("Successfully installed alarmtime-0.1.5")
-            );
-        }
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --verbose --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
+                    this.container.localAddress()
+                )
+            ),
+            Matchers.containsString("Successfully installed alarmtime-0.1.5")
+        );
     }
 
     @AfterEach

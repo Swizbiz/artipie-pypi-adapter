@@ -12,7 +12,7 @@ import com.artipie.http.auth.Authentication;
 import com.artipie.http.client.auth.BasicAuthenticator;
 import com.artipie.http.client.jetty.JettyClientSlices;
 import com.artipie.http.slice.LoggingSlice;
-import com.artipie.pypi.PypiContainer;
+import com.artipie.pypi.PypiDeployment;
 import com.artipie.vertx.VertxSliceServer;
 import io.vertx.reactivex.core.Vertx;
 import java.io.IOException;
@@ -24,7 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
-import org.testcontainers.Testcontainers;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * Test for {@link PyProxySlice} with authorisation.
@@ -55,9 +55,10 @@ class PyProxySliceAuthITCase {
     private VertxSliceServer proxy;
 
     /**
-     * Proxy port.
+     * Pypi container.
      */
-    private int port;
+    @RegisterExtension
+    private final PypiDeployment container = new PypiDeployment();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -85,26 +86,24 @@ class PyProxySliceAuthITCase {
                     new BasicAuthenticator(bob, pswd),
                     new InMemoryStorage()
                 )
-            )
+            ),
+            this.container.port()
         );
-        this.port = this.proxy.start();
+        this.proxy.start();
     }
 
     @Test
     void installsFromProxy() throws IOException, InterruptedException {
-        Testcontainers.exposeHostPorts(this.port);
-        try (PypiContainer runtime = new PypiContainer()) {
-            MatcherAssert.assertThat(
-                runtime.bash(
-                    String.format(
-                        // @checkstyle LineLengthCheck (1 line)
-                        "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
-                        runtime.localAddress(this.port)
-                    )
-                ),
-                Matchers.containsString("Successfully installed alarmtime-0.1.5")
-            );
-        }
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "pip install --index-url %s --no-deps --trusted-host host.testcontainers.internal \"alarmtime\"",
+                    this.container.localAddress()
+                )
+            ),
+            Matchers.containsString("Successfully installed alarmtime-0.1.5")
+        );
     }
 
     @AfterEach
