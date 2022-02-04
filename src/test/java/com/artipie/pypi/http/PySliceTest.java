@@ -120,7 +120,7 @@ class PySliceTest {
         MatcherAssert.assertThat(
             this.slice.response(
                 new RequestLine("POST", "/sample.tar").toString(),
-                new Headers.From("content-type", "multipart/form-data"),
+                new Headers.From("content-type", "multipart/form-data; boundary=\"abc123\""),
                 Flowable.empty()
             ),
             new RsHasStatus(RsStatus.BAD_REQUEST)

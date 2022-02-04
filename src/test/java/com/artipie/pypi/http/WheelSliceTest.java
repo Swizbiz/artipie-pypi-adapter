@@ -4,6 +4,7 @@
  */
 package com.artipie.pypi.http;
 
+import com.artipie.asto.Content;
 import com.artipie.asto.Key;
 import com.artipie.asto.Storage;
 import com.artipie.asto.ext.PublisherAs;
@@ -12,16 +13,18 @@ import com.artipie.asto.test.TestResource;
 import com.artipie.http.Headers;
 import com.artipie.http.headers.ContentType;
 import com.artipie.http.hm.RsHasStatus;
+import com.artipie.http.hm.SliceHasResponse;
 import com.artipie.http.rq.RequestLine;
+import com.artipie.http.rq.RqMethod;
 import com.artipie.http.rs.RsStatus;
-import io.reactivex.Flowable;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import org.apache.http.entity.mime.MultipartEntityBuilder;
+import java.nio.charset.StandardCharsets;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.collection.IsEmptyCollection;
 import org.hamcrest.core.IsEqual;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -32,25 +35,37 @@ import org.junit.jupiter.api.Test;
 @SuppressWarnings("PMD.AvoidDuplicateLiterals")
 class WheelSliceTest {
 
+    /**
+     * Test storage.
+     */
+    private Storage asto;
+
+    @BeforeEach
+    void init() {
+        this.asto = new InMemoryStorage();
+    }
+
     @Test
     void savesContentAndReturnsOk() throws IOException {
-        final Storage storage = new InMemoryStorage();
-        final String boundary = "098";
+        final String boundary = "simple boundary";
         final String filename = "artipie-sample-0.2.tar";
         final byte[] body = new TestResource("pypi_repo/artipie-sample-0.2.tar").asBytes();
         MatcherAssert.assertThat(
             "Returns CREATED status",
-            new WheelSlice(storage).response(
-                new RequestLine("GET", "/").toString(),
-                new Headers.From(new ContentType(String.format("Multipart;boundary=%s", boundary))),
-                Flowable.fromArray(ByteBuffer.wrap(this.multipartBody(body, boundary, filename)))
-            ),
-            new RsHasStatus(RsStatus.CREATED)
+            new WheelSlice(this.asto),
+            new SliceHasResponse(
+                new RsHasStatus(RsStatus.CREATED),
+                new RequestLine(RqMethod.POST, "/"),
+                new Headers.From(
+                    new ContentType(String.format("multipart/form-data; boundary=\"%s\"", boundary))
+                ),
+                new Content.From(this.multipartBody(body, boundary, filename))
+            )
         );
         MatcherAssert.assertThat(
             "Saves content to storage",
             new PublisherAs(
-                storage.value(new Key.From("artipie-sample", filename)).join()
+                this.asto.value(new Key.From("artipie-sample", filename)).join()
             ).bytes().toCompletableFuture().join(),
             new IsEqual<>(body)
         );
@@ -58,32 +73,27 @@ class WheelSliceTest {
 
     @Test
     void savesContentByNormalizedNameAndReturnsOk() throws IOException {
-        final Storage storage = new InMemoryStorage();
-        final String boundary = "876";
+        final String boundary = "my boundary";
         final String filename = "ABtests-0.0.2.1-py2.py3-none-any.whl";
         final String path = "super";
         final byte[] body = new TestResource("pypi_repo/ABtests-0.0.2.1-py2.py3-none-any.whl")
             .asBytes();
         MatcherAssert.assertThat(
             "Returns CREATED status",
-            new WheelSlice(storage).response(
-                new RequestLine("GET", String.format("/%s", path)).toString(),
-                new Headers.From(new ContentType(String.format("Multipart;boundary=%s", boundary))),
-                Flowable.fromArray(
-                    ByteBuffer.wrap(
-                        this.multipartBody(
-                            body,
-                            boundary, filename
-                        )
-                    )
-                )
-            ),
-            new RsHasStatus(RsStatus.CREATED)
+            new WheelSlice(this.asto),
+            new SliceHasResponse(
+                new RsHasStatus(RsStatus.CREATED),
+                new RequestLine("POST", String.format("/%s", path)),
+                new Headers.From(
+                    new ContentType(String.format("multipart/form-data; boundary=\"%s\"", boundary))
+                ),
+                new Content.From(this.multipartBody(body, boundary, filename))
+            )
         );
         MatcherAssert.assertThat(
             "Saves content to storage",
             new PublisherAs(
-                storage.value(new Key.From(path, "abtests", filename)).join()
+                this.asto.value(new Key.From(path, "abtests", filename)).join()
             ).bytes().toCompletableFuture().join(),
             new IsEqual<>(body)
         );
@@ -91,29 +101,24 @@ class WheelSliceTest {
 
     @Test
     void returnsBadRequestIfFileNameIsInvalid() throws IOException {
-        final Storage storage = new InMemoryStorage();
-        final String boundary = "876";
+        final String boundary = RandomStringUtils.random(10);
         final String filename = "artipie-sample-2020.tar.bz2";
         final byte[] body = new TestResource("pypi_repo/artipie-sample-2.1.tar.bz2").asBytes();
         MatcherAssert.assertThat(
             "Returns BAD_REQUEST status",
-            new WheelSlice(storage).response(
-                new RequestLine("GET", "/").toString(),
-                new Headers.From(new ContentType(String.format("Multipart;boundary=%s", boundary))),
-                Flowable.fromArray(
-                    ByteBuffer.wrap(
-                        this.multipartBody(
-                            body,
-                            boundary, filename
-                        )
-                    )
+            new WheelSlice(this.asto),
+            new SliceHasResponse(
+                new RsHasStatus(RsStatus.BAD_REQUEST),
+                new RequestLine(RqMethod.POST, "/"),
+                new Headers.From(
+                    new ContentType(String.format("multipart/form-data; boundary=\"%s\"", boundary))
+                ),
+                new Content.From(this.multipartBody(body, boundary, filename))
                 )
-            ),
-            new RsHasStatus(RsStatus.BAD_REQUEST)
         );
         MatcherAssert.assertThat(
             "Storage is empty",
-            storage.list(Key.ROOT).join(),
+            this.asto.list(Key.ROOT).join(),
             new IsEmptyCollection<>()
         );
     }
@@ -121,31 +126,46 @@ class WheelSliceTest {
     @Test
     void returnsBadRequestIfFileInvalid() throws IOException {
         final Storage storage = new InMemoryStorage();
-        final String boundary = "000";
+        final String boundary = RandomStringUtils.random(10);
         final String filename = "myproject.whl";
         final byte[] body = "some code".getBytes();
         MatcherAssert.assertThat(
-            new WheelSlice(storage).response(
-                new RequestLine("GET", "/").toString(),
-                new Headers.From(new ContentType(String.format("Multipart;boundary=%s", boundary))),
-                Flowable.fromArray(ByteBuffer.wrap(this.multipartBody(body, boundary, filename)))
+            new WheelSlice(storage),
+            new SliceHasResponse(
+                new RsHasStatus(RsStatus.BAD_REQUEST),
+                new RequestLine(RqMethod.POST, "/"),
+                new Headers.From(
+                    new ContentType(String.format("multipart/form-data; boundary=\"%s\"", boundary))
             ),
-            new RsHasStatus(RsStatus.BAD_REQUEST)
+                new Content.From(this.multipartBody(body, boundary, filename))
+            )
         );
     }
 
     private byte[] multipartBody(final byte[] input, final String boundary, final String filename)
         throws IOException {
-        try (ByteArrayOutputStream res = new ByteArrayOutputStream()) {
-            MultipartEntityBuilder.create()
-                .setBoundary(boundary)
-                .addBinaryBody(
-                    "some_file", input, org.apache.http.entity.ContentType.TEXT_PLAIN, filename
-                )
-                .build()
-                .writeTo(res);
-            return res.toByteArray();
-        }
+        final ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.write(
+            String.join(
+                "\r\n",
+                "Ignored preamble",
+                String.format("--%s", boundary),
+                "Content-Disposition: form-data; name=\"data\"",
+                "",
+                "",
+                "some data",
+                String.format("--%s", boundary),
+                String.format(
+                    "Content-Disposition: form-data; name=\"content\"; filename=\"%s\"",
+                    filename
+                ),
+                "",
+                ""
+            ).getBytes(StandardCharsets.US_ASCII)
+        );
+        body.write(input);
+        body.write(String.format("\r\n--%s--", boundary).getBytes(StandardCharsets.US_ASCII));
+        return body.toByteArray();
     }
 
 }

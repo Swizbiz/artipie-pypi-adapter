@@ -4,6 +4,8 @@
  */
 package com.artipie.pypi.meta;
 
+import com.artipie.asto.ArtipieIOException;
+import com.jcabi.log.Logger;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,6 +17,7 @@ import org.apache.commons.compress.archivers.ArchiveException;
 import org.apache.commons.compress.archivers.ArchiveInputStream;
 import org.apache.commons.compress.archivers.ArchiveStreamFactory;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.compressors.z.ZCompressorInputStream;
@@ -62,8 +65,10 @@ public interface Metadata {
         @Override
         public PackageInfo read() {
             final PackageInfo res;
-            if (Stream.of("tar", "zip", "whl", "egg").anyMatch(this.filename::endsWith)) {
-                res = this.readZipTarOrWhl();
+            if (Stream.of("zip", "whl", "egg").anyMatch(this.filename::endsWith)) {
+                res = this.readZipEggOrWhl();
+            } else if (this.filename.endsWith("tar")) {
+                res = this.readTar();
             } else if (this.filename.endsWith("tar.gz")) {
                 res = this.readTarGz();
             } else if (this.filename.endsWith("tar.Z")) {
@@ -109,17 +114,30 @@ public interface Metadata {
         }
 
         /**
-         * Reads metadata from zip, tar or wheel archive.
+         * Reads metadata from zip, egg or wheel archive.
          * @return PackageInfo
          */
-        private PackageInfo readZipTarOrWhl() {
-            try (
-                ArchiveInputStream archive = new ArchiveStreamFactory().createArchiveInputStream(
-                    new BufferedInputStream(this.input)
-                )
+        private PackageInfo readZipEggOrWhl() {
+            try (ZipArchiveInputStream archive =
+                new ZipArchiveInputStream(new BufferedInputStream(this.input))
             ) {
                 return FromArchive.readArchive(archive);
-            } catch (final ArchiveException | IOException ex) {
+            } catch (final IOException ex) {
+                Logger.error(this, ex.getMessage());
+                throw FromArchive.error(ex);
+            }
+        }
+
+        /**
+         * Reads metadata from zip, egg or wheel archive.
+         * @return PackageInfo
+         */
+        private PackageInfo readTar() {
+            try (ArchiveInputStream archive =
+                new TarArchiveInputStream(new BufferedInputStream(this.input))
+            ) {
+                return FromArchive.readArchive(archive);
+            } catch (final IOException ex) {
                 throw FromArchive.error(ex);
             }
         }
@@ -161,8 +179,8 @@ public interface Metadata {
          * @param err Original exception
          * @return IllegalArgumentException instance
          */
-        private static IllegalArgumentException error(final Exception err) {
-            return new IllegalArgumentException("Failed to parse python package", err);
+        private static ArtipieIOException error(final Exception err) {
+            return new ArtipieIOException("Failed to parse python package", err);
         }
 
         /**
@@ -188,7 +206,7 @@ public interface Metadata {
                 }
             }
             return res.orElseThrow(
-                () -> new IllegalArgumentException("Package metadata file not found")
+                () -> new ArtipieIOException("Package metadata file not found")
             );
         }
 

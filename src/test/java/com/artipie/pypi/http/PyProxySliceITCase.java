@@ -20,8 +20,9 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import org.apache.commons.io.IOUtils;
 import org.cactoos.list.ListOf;
-import org.cactoos.text.TextOf;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
 import org.hamcrest.core.IsEqual;
@@ -123,7 +124,7 @@ final class PyProxySliceITCase {
         );
         MatcherAssert.assertThat(
             "Response body is html with packages list",
-            new TextOf(con.getInputStream()).asString(),
+            IOUtils.toString(con.getInputStream(), StandardCharsets.UTF_8),
             new StringContainsInOrder(expected)
         );
         MatcherAssert.assertThat(
