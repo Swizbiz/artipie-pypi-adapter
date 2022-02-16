@@ -114,7 +114,7 @@ public final class PypiDeployment implements BeforeEachCallback, AfterEachCallba
          * New client container with name.
          */
         public PypiContainer() {
-            super(DockerImageName.parse("python:3"));
+            super(DockerImageName.parse("python:3.7"));
         }
     }
 }

@@ -153,6 +153,32 @@ public final class PySliceITCase {
     }
 
     @Test
+    void canPublishSeveralPackages() throws Exception {
+        this.startServer();
+        final String zip = "pypi_repo/artipie-sample-0.2.zip";
+        this.container.putBinaryToContainer(new TestResource(zip).asBytes(), zip);
+        final String tar = "pypi_repo/artipie-sample-0.2.tar.gz";
+        this.container.putBinaryToContainer(new TestResource(tar).asBytes(), tar);
+        final String whl = "pypi_repo/artipie_sample-0.2-py3-none-any.whl";
+        this.container.putBinaryToContainer(new TestResource(whl).asBytes(), whl);
+        MatcherAssert.assertThat(
+            this.container.bash(
+                String.format(
+                    // @checkstyle LineLengthCheck (1 line)
+                    "python3 -m twine upload --repository-url %s -u any -p any --verbose pypi_repo/*",
+                    this.container.localAddress()
+                )
+            ),
+            Matchers.allOf(
+                // @checkstyle LineLengthCheck (3 lines)
+                new StringContainsInOrder(new ListOf<String>("Uploading artipie-sample-0.2.zip", "100%")),
+                new StringContainsInOrder(new ListOf<String>("Uploading artipie-sample-0.2.tar.gz", "100%")),
+                new StringContainsInOrder(new ListOf<String>("Uploading artipie_sample-0.2-py3-none-any.whl", "100%"))
+            )
+        );
+    }
+
+    @Test
     void canInstallWithVersion() throws Exception {
         this.putPackages();
         this.startServer();
