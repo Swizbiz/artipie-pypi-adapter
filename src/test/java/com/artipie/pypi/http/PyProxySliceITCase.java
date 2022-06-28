@@ -171,7 +171,7 @@ final class PyProxySliceITCase {
             "Alarm time index page was added to storage",
             new PublisherAs(this.storage.value(new Key.From("alarmtime")).join()).asciiString()
                 .toCompletableFuture().join(),
-            new StringContainsInOrder(new ListOf<>("<!DOCTYPE html>", "Links for AlarmTime"))
+            new StringContainsInOrder(new ListOf<>("<!DOCTYPE html>", "Links for alarmtime"))
         );
         con.disconnect();
     }

@@ -1,11 +1,13 @@
-<img src="https://www.artipie.com/logo.svg" width="64px" height="64px"/>
+<a href="http://artipie.com"><img src="https://www.artipie.com/logo.svg" width="64px" height="64px"/></a>
+
+[![Join our Telegram group](https://img.shields.io/badge/Join%20us-Telegram-blue?&logo=telegram&?link=http://right&link=http://t.me/artipie)](http://t.me/artipie)
 
 [![EO principles respected here](https://www.elegantobjects.org/badge.svg)](https://www.elegantobjects.org)
 [![DevOps By Rultor.com](http://www.rultor.com/b/artipie/pypi-adapter)](http://www.rultor.com/p/artipie/pypi-adapter)
 [![We recommend IntelliJ IDEA](https://www.elegantobjects.org/intellij-idea.svg)](https://www.jetbrains.com/idea/)
 
 [![Javadoc](http://www.javadoc.io/badge/com.artipie/pypi-adapter.svg)](http://www.javadoc.io/doc/com.artipie/pypi-adapter)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/com.artipie/pypi-adapter/blob/master/LICENSE.txt)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/artipie/pypi-adapter/blob/master/LICENSE.txt)
 [![codecov](https://codecov.io/gh/artipie/pypi-adapter/branch/master/graph/badge.svg)](https://codecov.io/gh/artipie/pypi-adapter)
 [![Hits-of-Code](https://hitsofcode.com/github/artipie/pypi-adapter)](https://hitsofcode.com/view/github/artipie/pypi-adapter)
 [![Maven Central](https://img.shields.io/maven-central/v/com.artipie/pypi-adapter.svg)](https://maven-badges.herokuapp.com/maven-central/com.artipie/pypi-adapter)
@@ -16,7 +18,11 @@ into Python Repository which `pip` and `twine` can perfectly understand. This li
 is a part of [Artipie](https://github.com/artipie) binary artifact management tool and provides 
 Python storage functionality for [Artipie central](https://central.artipie.com/). 
 
-## How to use
+If you have any question or suggestions, do not hesitate to [create an issue](https://github.com/artipie/pypi-adapter/issues/new) 
+or contact us in [Telegram](https://t.me/artipie).  
+Artipie [roadmap](https://github.com/orgs/artipie/projects/3).
+
+## How to set up `pip` and `twine` to use Artipie central PyPI repository 
 
 To **install** packages with `pip` add the following section to `.pip/pip.conf`:
 
@@ -84,4 +90,4 @@ sending us your pull request please run full Maven build:
 $ mvn verify -Pqulice
 ```
 
-To avoid build errors use Maven 3.2+.
+To avoid build errors use Maven 3.2+ and please read [contributing rules](https://github.com/artipie/artipie/blob/master/CONTRIBUTING.md). 
